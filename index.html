@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Snake &amp; Ladder</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:#fff1d2;color:#23334a;font-family:Arial,sans-serif}
+main{width:min(100%,1000px);margin:auto}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
+h1{margin:0;font-size:clamp(24px,6vw,38px)}
+header p{margin:5px 0;color:#66758a}
+.badge{padding:9px 12px;background:white;border-radius:12px;font-weight:bold;font-size:12px}
+.layout{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(250px,.7fr);gap:16px}
+.card{padding:14px;background:#ffffffbd;border-radius:20px;box-shadow:0 12px 30px #26354a16}
+.board{position:relative;width:100%;aspect-ratio:1;border:4px solid #26364d;border-radius:14px;overflow:hidden}
+.tiles{position:absolute;inset:0;display:grid;grid-template-columns:repeat(10,1fr);grid-template-rows:repeat(10,1fr)}
+.tile{position:relative;border:1px solid #26354a30;padding:3px;font-size:clamp(8px,1.5vw,13px);font-weight:bold}
+.tile:nth-child(4n+1){background:#ffdb80}
+.tile:nth-child(4n+2){background:#bde9b8}
+.tile:nth-child(4n+3){background:#a9e2e6}
+.tile:nth-child(4n){background:#f7b5a7}
+.tile:last-child{background:#ffc857}
+.special{position:absolute;right:2px;top:1px}
+.tokens{position:absolute;bottom:1px;left:0;right:0;text-align:center;font-size:clamp(12px,2.4vw,21px)}
+.paths{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.snake{fill:none;stroke:#dc405b;stroke-width:1.3;stroke-linecap:round}
+.ladder{fill:none;stroke:#875022;stroke-width:1.6;stroke-linecap:round}
+.side{display:grid;gap:12px;align-content:start}
+.turn{font-size:21px;font-weight:bold}
+.players{display:flex;gap:8px;margin-top:12px}
+.player{flex:1;padding:10px;background:white;border:2px solid transparent;border-radius:12px;font-weight:bold;font-size:13px}
+.player.active{border-color:#ffc857;background:#fff4cf}
+.dice-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.dice{width:68px;height:68px;display:grid;place-items:center;background:white;border-radius:17px;box-shadow:0 5px 0 #d5d2cb;font-size:45px}
+@keyframes shake{25%{transform:rotate(15deg)}50%{transform:rotate(-15deg)}75%{transform:rotate(10deg)}}
+.dice.rolling{animation:shake .35s ease 2}
+button{width:100%;padding:13px;margin-top:8px;border:0;border-radius:12px;background:#20334b;color:white;font-size:16px;font-weight:bold;cursor:pointer}
+button:hover{filter:brightness(1.15)}
+button.secondary{background:white;color:#34445b}
+.status{min-height:58px;margin-top:12px;padding:12px;background:#edf2f6;border-radius:12px;text-align:center;font-weight:bold;line-height:1.4}
+.rules{color:#66758a;font-size:13px;line-height:1.5}
+.overlay{position:fixed;inset:0;display:grid;place-items:center;padding:20px;background:#101b2bcc}
+.overlay.hidden{display:none}
+.dialog{width:min(90vw,350px);padding:26px;background:#fff8e9;border-radius:22px;text-align:center}
+.dialog .trophy{font-size:58px}
+.dialog h2{margin:5px}
+@media(max-width:700px){body{padding:12px}.layout{grid-template-columns:1fr}.card{padding:8px}.side{grid-template-columns:1fr 1fr}.players-card,.rules-card{grid-column:1/-1}.tile{padding:2px}}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div><h1>🐍 Snake &amp; Ladder 🪜</h1><p>Roll the dice. Race to square 100!</p></div>
+    <div class="badge">2 PLAYERS</div>
+  </header>
+
+  <div class="layout">
+    <section class="card">
+      <div class="board">
+        <div class="tiles" id="tiles"></div>
+        <svg class="paths" id="paths" viewBox="0 0 100 100"></svg>
+      </div>
+    </section>
+
+    <aside class="side">
+      <section class="card players-card">
+        <div class="turn" id="turn">🔴 Player 1's turn</div>
+        <div class="players">
+          <div class="player active" id="p0">🔴 Player 1: <span id="pos0">Start</span></div>
+          <div class="player" id="p1">🔵 Player 2: <span id="pos1">Start</span></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="dice-row">
+          <div class="dice" id="dice">⚀</div>
+          <div><b>Last roll</b><div id="last">—</div></div>
+        </div>
+        <button id="roll">🎲 Roll Dice</button>
+        <button class="secondary" id="reset">↻ New Game</button>
+        <div class="status" id="status">Player 1, roll the dice to begin!</div>
+      </section>
+
+      <section class="card rules-card">
+        <b>How to play</b>
+        <p class="rules">🐍 Land on a snake and slide down. 🪜 Land at the bottom of a ladder to climb up. Roll a 6 for another turn. You need an exact roll to reach 100!</p>
+      </section>
+    </aside>
+  </div>
+</main>
+
+<div class="overlay hidden" id="overlay">
+  <div class="dialog">
+    <div class="trophy">🏆</div>
+    <h2 id="winner">Player wins!</h2>
+    <p>Great game!</p>
+    <button id="again">Play Again</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const snakes = {99: 54, 95: 72, 70: 55, 52: 42, 25: 2};
+  const ladders = {6: 25, 11: 40, 17: 69, 46: 90, 60: 85};
+  const $ = id => document.getElementById(id);
+
+  let positions = [0, 0];
+  let turn = 0;
+  let busy = false;
+  let gameOver = false;
+
+  // Number squares in the board's zigzag order, starting at bottom-left.
+  const order = [];
+  for (let row = 9; row >= 0; row--) {
+    const rowNumbers = Array.from({length: 10}, (_, i) => row * 10 + i + 1);
+    if (row % 2 === 1) rowNumbers.reverse();
+    order.push(...rowNumbers);
+  }
+
+  function squareCenter(number) {
+    const index = order.indexOf(number);
+    return {x: (index % 10) * 10 + 5, y: Math.floor(index / 10) * 10 + 5};
+  }
+
+  function drawPaths() {
+    const svg = $("paths");
+    svg.innerHTML = "";
+
+    for (const [fromText, to] of Object.entries({...snakes, ...ladders})) {
+      const from = Number(fromText);
+      const a = squareCenter(from);
+      const b = squareCenter(to);
+
+      if (snakes[from]) {
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        const curve = (from % 2 ? 5 : -5);
+        path.setAttribute("d", `M ${a.x} ${a.y} C ${a.x + curve} ${a.y - 5}, ${b.x - curve} ${b.y + 5}, ${b.x} ${b.y}`);
+        path.setAttribute("class", "snake");
+        svg.appendChild(path);
+      } else {
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const length = Math.hypot(dx, dy);
+        const ox = -dy / length * 1;
+        const oy = dx / length * 1;
+
+        for (const side of [-1, 1]) {
+          const rail = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          rail.setAttribute("d", `M ${a.x + ox * side} ${a.y + oy * side} L ${b.x + ox * side} ${b.y + oy * side}`);
+          rail.setAttribute("class", "ladder");
+          svg.appendChild(rail);
+        }
+
+        for (let t = 0.15; t < 0.9; t += 0.16) {
+          const x = a.x + dx * t;
+          const y = a.y + dy * t;
+          const rung = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          rung.setAttribute("d", `M ${x - ox} ${y - oy} L ${x + ox} ${y + oy}`);
+          rung.setAttribute("class", "ladder");
+          svg.appendChild(rung);
+        }
+      }
+    }
+  }
+
+  function renderBoard() {
+    const tiles = $("tiles");
+    tiles.innerHTML = "";
+
+    for (const number of order) {
+      const tile = document.createElement("div");
+      tile.className = "tile";
+      tile.dataset.number = number;
+      tile.innerHTML =
+        `<span>${number}</span>` +
+        (snakes[number] ? '<span class="special">🐍</span>' : "") +
+        (ladders[number] ? '<span class="special">🪜</span>' : "") +
+        '<div class="tokens"></div>';
+      tiles.appendChild(tile);
+    }
+
+    drawPaths();
+    renderTokens();
+  }
+
+  function renderTokens() {
+    document.querySelectorAll(".tokens").forEach(el => el.innerHTML = "");
+
+    positions.forEach((position, player) => {
+      if (!position) return;
+      const target = document.querySelector(`.tile[data-number="${position}"] .tokens`);
+      if (target) target.textContent += player === 0 ? "🔴" : "🔵";
+    });
+
+    $("pos0").textContent = positions[0] || "Start";
+    $("pos1").textContent = positions[1] || "Start";
+    $("p0").classList.toggle("active", turn === 0 && !gameOver);
+    $("p1").classList.toggle("active", turn === 1 && !gameOver);
+    $("turn").textContent = `🔴🔵 Player ${turn + 1}'s turn`;
+  }
+
+  function rollDice() {
+    if (busy || gameOver) return;
+    busy = true;
+
+    const dice = $("dice");
+    dice.classList.remove("rolling");
+    void dice.offsetWidth;
+    dice.classList.add("rolling");
+
+    let count = 0;
+    const animation = setInterval(() => {
+      dice.textContent = ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"][Math.floor(Math.random() * 6)];
+      count++;
+
+      if (count >= 8) {
+        clearInterval(animation);
+        finishRoll();
+      }
+    }, 65);
+  }
+
+  function finishRoll() {
+    const roll = Math.floor(Math.random() * 6) + 1;
+    $("dice").textContent = ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"][roll - 1];
+    $("last").textContent = roll;
+
+    const player = turn;
+    let message = `Player ${player + 1} rolled ${roll}. `;
+    const nextPosition = positions[player] + roll;
+
+    if (nextPosition > 100) {
+      message += "You need an exact roll to reach 100.";
+    } else {
+      positions[player] = nextPosition;
+
+      if (snakes[nextPosition]) {
+        positions[player] = snakes[nextPosition];
+        message += `Snake! Slide from ${nextPosition} to ${snakes[nextPosition]}.`;
+      } else if (ladders[nextPosition]) {
+        positions[player] = ladders[nextPosition];
+        message += `Ladder! Climb from ${nextPosition} to ${ladders[nextPosition]}.`;
+      } else {
+        message += `Moved to square ${nextPosition}.`;
+      }
+
+      if (positions[player] === 100) {
+        gameOver = true;
+        message = `🎉 Player ${player + 1} wins!`;
+        $("winner").textContent = `Player ${player + 1} wins!`;
+        setTimeout(() => $("overlay").classList.remove("hidden"), 450);
+      }
+    }
+
+    if (!gameOver) {
+      if (roll === 6) {
+        message += " Roll again!";
+      } else {
+        turn = 1 - turn;
+      }
+    }
+
+    renderTokens();
+    $("status").textContent = message;
+    busy = false;
+  }
+
+  function resetGame() {
+    positions = [0, 0];
+    turn = 0;
+    busy = false;
+    gameOver = false;
+    $("overlay").classList.add("hidden");
+    $("dice").textContent = "⚀";
+    $("last").textContent = "—";
+    $("status").textContent = "Player 1, roll the dice to begin!";
+    renderTokens();
+  }
+
+  $("roll").addEventListener("click", rollDice);
+  $("reset").addEventListener("click", resetGame);
+  $("again").addEventListener("click", resetGame);
+  document.addEventListener("keydown", event => {
+    if (event.code === "Space") {
+      event.preventDefault();
+      rollDice();
+    }
+  });                                                                                                                                                               
+              
+  renderBoard();
+})();
+</script>
+</body>
+</html>
